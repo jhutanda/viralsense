@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "@devvit/start": "^0.12.23",
-    "@eslint/js": "9.39.2",
+    "@eslint/js": "10.0.1",
     "@types/node": "^22.19.7",
     "eslint": "9.39.2",
     "globals": "17.2.0",
