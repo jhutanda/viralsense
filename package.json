@@ -22,7 +22,7 @@
     "devvit": "0.12.23"
   },
   "devDependencies": {
-    "@devvit/start": "^0.12.23",
+    "@devvit/start": "^0.12.24",
     "@eslint/js": "9.39.2",
     "@types/node": "^22.19.7",
     "eslint": "9.39.2",
