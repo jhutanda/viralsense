@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@devvit/public-api": "0.12.23",
-    "devvit": "0.12.23"
+    "devvit": "0.12.24"
   },
   "devDependencies": {
     "@devvit/start": "^0.12.23",
