@@ -15,9 +15,9 @@ Devvit.configure({
 });
 // Define the form to display the article summary
 const shortPostForm = Devvit.createForm(
-  (data: { title?: string; summary?: string; sentiment?: string }) => ({
+  (data: { title?: string; summary?: string }) => ({
     title: 'ViralSense Summary',
-    description: 'Short AI summary with tone analysis for the post.',
+    description: 'Short AI summary for the post.',
     acceptLabel: 'Close',
     fields: [
       {
@@ -28,18 +28,12 @@ const shortPostForm = Devvit.createForm(
         defaultValue: data.title ?? '',
       },
       {
-        type: 'string',
-        name: 'sentiment',
-        label: 'Tone',
-        disabled: true,
-        defaultValue: data.sentiment ?? '',
-      },
-      {
         type: 'paragraph',
         name: 'summary',
         label: 'Summary',
         disabled: true,
         defaultValue: data.summary ?? '',
+        lineHeight: 10,
       },
     ],
   }),
@@ -70,7 +64,6 @@ Devvit.addMenuItem({
       ui.showForm(shortPostForm, {
         title,
         summary: summaryData.summary,
-        sentiment: summaryData.sentiment,
       });
     } catch (err) {
       console.error('Error generating summary:', err);

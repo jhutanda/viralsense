@@ -3,6 +3,8 @@ import { Devvit } from '@devvit/public-api';
 type ArticleSummarizerFormData = {
   title?: string;
   article?: string;
+  summary?: string;
+  sentiment?: string;
 };
 
 const articleSummarizerResultFormKey = Devvit.createForm(
@@ -19,13 +21,13 @@ const articleSummarizerResultFormKey = Devvit.createForm(
         helpText: '',
       },
       {
-        type: 'string',
+        type: 'paragraph',
         name: 'summary',
         label: 'Summary',
         disabled: true,
         defaultValue: data.summary ?? '',
         helpText: '',
-        lines: 8,
+        lineHeight: 10,
         placeholder: '',
       },
     ],

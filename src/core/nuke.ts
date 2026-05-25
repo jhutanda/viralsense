@@ -97,35 +97,55 @@ function tokenizeWords(text: string): string[] {
   return normalizeText(text).split(' ').filter((word) => word.length > 0);
 }
 
-function buildSentenceVectors(sentences: string[]): Record<string, number>[] {
-  return sentences.map((sentence) => {
-    const vector: Record<string, number> = {};
+function computeIdf(sentences: string[]): Record<string, number> {
+  const documentCount = sentences.length;
+  const documentFrequency: Record<string, number> = {};
+
+  sentences.forEach((sentence) => {
+    const uniqueWords = new Set<string>();
     tokenizeWords(sentence).forEach((word) => {
       if (!DEFAULT_STOP_WORDS.has(word) && word.length > 2) {
-        vector[word] = (vector[word] || 0) + 1;
+        uniqueWords.add(word);
       }
     });
+    uniqueWords.forEach((word) => {
+      documentFrequency[word] = (documentFrequency[word] || 0) + 1;
+    });
+  });
+
+  return Object.fromEntries(
+    Object.entries(documentFrequency).map(([word, count]) => [word, Math.log((documentCount + 1) / (count + 1)) + 1])
+  );
+}
+
+function buildTfidfVectors(sentences: string[], idf: Record<string, number>): Record<string, number>[] {
+  return sentences.map((sentence) => {
+    const vector: Record<string, number> = {};
+    const tokens = tokenizeWords(sentence).filter((word) => !DEFAULT_STOP_WORDS.has(word) && word.length > 2);
+
+    tokens.forEach((word) => {
+      const tf = (vector[word] || 0) + 1;
+      vector[word] = tf * (idf[word] ?? 1);
+    });
+
+    const length = Math.sqrt(Object.values(vector).reduce((sum, value) => sum + value * value, 0));
+    if (length > 0) {
+      Object.keys(vector).forEach((word) => {
+        const currentValue = vector[word] ?? 0;
+        vector[word] = currentValue / length;
+      });
+    }
+
     return vector;
   });
 }
 
 function cosineSimilarity(vecA: Record<string, number>, vecB: Record<string, number>): number {
   let dot = 0;
-  let normA = 0;
-  let normB = 0;
-
   for (const [word, valueA] of Object.entries(vecA)) {
-    normA += valueA * valueA;
-    const valueB = vecB[word] ?? 0;
-    dot += valueA * valueB;
+    dot += valueA * (vecB[word] ?? 0);
   }
-
-  for (const valueB of Object.values(vecB)) {
-    normB += valueB * valueB;
-  }
-
-  if (normA === 0 || normB === 0) return 0;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  return dot;
 }
 
 function buildSimilarityMatrix(vectors: Record<string, number>[]): number[][] {
@@ -133,15 +153,33 @@ function buildSimilarityMatrix(vectors: Record<string, number>[]): number[][] {
   const matrix: number[][] = Array.from({ length }, () => new Array<number>(length).fill(0));
 
   for (let i = 0; i < length; i += 1) {
+    const row = matrix[i]!;
+    const vectorI = vectors[i]!;
     for (let j = 0; j < length; j += 1) {
-      const vectorI = vectors[i] as Record<string, number>;
-      const vectorJ = vectors[j] as Record<string, number>;
-      const row = matrix[i] as number[];
+      const vectorJ = vectors[j]!;
       row[j] = i === j ? 0 : cosineSimilarity(vectorI, vectorJ);
     }
   }
 
   return matrix;
+}
+
+function extractKeywords(sentences: string[], maxKeywords = 12): string[] {
+  const wordScores: Record<string, number> = {};
+  const idf = computeIdf(sentences);
+
+  sentences.forEach((sentence) => {
+    tokenizeWords(sentence).forEach((word) => {
+      if (!DEFAULT_STOP_WORDS.has(word) && word.length > 2) {
+        wordScores[word] = (wordScores[word] || 0) + (idf[word] ?? 1);
+      }
+    });
+  });
+
+  return Object.entries(wordScores)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, maxKeywords)
+    .map(([word]) => word);
 }
 
 function rankSentences(sentences: string[], matrix: number[][]): number[] {
@@ -150,7 +188,7 @@ function rankSentences(sentences: string[], matrix: number[][]): number[] {
   if (length === 0) return [];
 
   const scores: number[] = new Array<number>(length).fill(1 / length);
-  const thresholds = 1e-6;
+  const threshold = 1e-6;
   const maxIter = 100;
 
   for (let iter = 0; iter < maxIter; iter += 1) {
@@ -158,25 +196,22 @@ function rankSentences(sentences: string[], matrix: number[][]): number[] {
 
     for (let i = 0; i < length; i += 1) {
       let sum = 0;
-      const row = matrix[i] as number[];
-      let rowSum = row.reduce((acc, value) => acc + value, 0);
-      if (rowSum === 0) {
-        rowSum = 1;
-      }
       for (let j = 0; j < length; j += 1) {
-        const rowJ = matrix[j] as number[];
-        const rowJValue = rowJ[i] ?? 0;
-        if (rowJValue > 0) {
-          const jRowSum = rowJ.reduce((acc, value) => acc + value, 0) || 1;
-          sum += (rowJValue / jRowSum) * (scores[j] ?? 0);
-        }
+        const row = matrix[j];
+        if (!row) continue;
+
+        const similarity = row[i] ?? 0;
+        if (!similarity) continue;
+
+        const outgoing = row.reduce((acc, value) => acc + value, 0) || 1;
+        sum += (similarity / outgoing) * (scores[j] ?? 0);
       }
       newScores[i] = (newScores[i] ?? 0) + damping * sum;
     }
 
-    const diff = newScores.reduce((acc, score, index) => acc + Math.abs(score - (scores[index] ?? 0)), 0);
+    const diff = newScores.reduce((acc, value, index) => acc + Math.abs(value - (scores[index] ?? 0)), 0);
     scores.splice(0, length, ...newScores);
-    if (diff < thresholds) break;
+    if (diff < threshold) break;
   }
 
   return scores;
@@ -187,18 +222,29 @@ function summarizeText(text: string, maxSentences = 3): string {
   if (sentences.length === 0) return '';
   if (sentences.length <= maxSentences) return sentences.join(' ');
 
-  const vectors = buildSentenceVectors(sentences);
+  const idf = computeIdf(sentences);
+  const vectors = buildTfidfVectors(sentences, idf);
   const matrix = buildSimilarityMatrix(vectors);
-  const scores = rankSentences(sentences, matrix);
+  const centralityScores = rankSentences(sentences, matrix);
 
-  const ranked = sentences
-    .map((sentence, index) => ({ sentence, index, score: scores[index] ?? 0 }))
+  const keywords = new Set(extractKeywords(sentences, 12));
+  const keywordScores = sentences.map((sentence) =>
+    tokenizeWords(sentence).reduce((score, word) => score + (keywords.has(word) ? 1 : 0), 0)
+  );
+
+  const sentenceScores = centralityScores.map((score, index) => {
+    const positionWeight = 1 / (1 + index * 0.8);
+    return score * 0.7 + ((keywordScores[index] ?? 0) / 5) * 0.2 + positionWeight * 0.1;
+  });
+
+  const rankedSentences = sentences
+    .map((sentence, index) => ({ sentence, index, score: sentenceScores[index] ?? 0 }))
     .sort((a, b) => b.score - a.score)
     .slice(0, maxSentences)
     .sort((a, b) => a.index - b.index)
     .map((item) => item.sentence);
 
-  return ranked.join(' ');
+  return rankedSentences.join(' ');
 }
 
 export async function generateAISummary(
@@ -213,7 +259,9 @@ export async function generateAISummary(
     return { summary: defaultSummary, sentiment: 'Neutral' };
   }
 
-  const summary = summarizeText(text, options?.maxSentences ?? 3);
+  const sentenceCount = tokenizeSentences(text).length;
+  const adaptiveMaxSentences = options?.maxSentences ?? Math.min(6, Math.max(3, Math.ceil(sentenceCount / 4)));
+  const summary = summarizeText(text, adaptiveMaxSentences);
 
   const positiveWords = [
     'good', 'great', 'excellent', 'awesome', 'fantastic', 'positive', 'love', 'like', 'happy', 'amazing', 'success', 'win', 'strong', 'growth'
